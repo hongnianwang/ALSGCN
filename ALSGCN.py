@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from new_module import *
 
-# 排名预测模块
+
 class RankingPredictionModule(nn.Module):
     def __init__(self, hidden_size):
         super(RankingPredictionModule, self).__init__()
@@ -33,7 +33,7 @@ class DGC(nn.Module):
         return h_dt_hat
 
 
-# 静态图卷积层
+
 class SGC(nn.Module):
     def __init__(self, hidden_size, dropout, beta, gdep=1):
         super(SGC, self).__init__()
