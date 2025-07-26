@@ -3,67 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-class GATModel(nn.Module):
-    def __init__(self, d_feat=6, hidden_size=128, num_layers=2, dropout=0.0, base_model="GRU"):
-        super().__init__()
-
-        if base_model == "GRU":
-            self.rnn = nn.GRU(
-                input_size=d_feat,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                batch_first=True,
-                dropout=dropout,
-            )
-        elif base_model == "LSTM":
-            self.rnn = nn.LSTM(
-                input_size=d_feat,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                batch_first=True,
-                dropout=dropout,
-            )
-        else:
-            raise ValueError("unknown base model name `%s`" % base_model)
-
-        self.hidden_size = hidden_size
-        self.d_feat = d_feat
-        self.transformation = nn.Linear(self.hidden_size, self.hidden_size)
-        self.a = nn.Parameter(torch.randn(self.hidden_size * 2, 1))
-        self.a.requires_grad = True
-        self.fc = nn.Linear(self.hidden_size, self.hidden_size)
-        self.fc_out = nn.Linear(hidden_size, 1)
-        self.leaky_relu = nn.LeakyReLU()
-        self.softmax = nn.Softmax(dim=1)
-
-    def cal_attention(self, x, y):
-        x = self.transformation(x)
-        y = self.transformation(y)
-
-        sample_num = x.shape[0]
-        dim = x.shape[1]
-        e_x = x.expand(sample_num, sample_num, dim)
-        e_y = torch.transpose(e_x, 0, 1)
-        attention_in = torch.cat((e_x, e_y), 2).view(-1, dim * 2)
-        self.a_t = torch.t(self.a)
-        attention_out = self.a_t.mm(torch.t(attention_in)).view(sample_num, sample_num)
-        attention_out = self.leaky_relu(attention_out)
-        att_weight = self.softmax(attention_out)
-        return att_weight
-
-    def forward(self, x):
-        # x: [N, F*T]
-        x = x.reshape(len(x), self.d_feat, -1)  # [N, F, T]
-        x = x.permute(0, 2, 1)  # [N, T, F]
-        out, _ = self.rnn(x)
-        hidden = out[:, -1, :]
-        att_weight = self.cal_attention(hidden, hidden)
-        hidden = att_weight.mm(hidden) + hidden
-        hidden = self.fc(hidden)
-        hidden = self.leaky_relu(hidden)
-        # return self.fc_out(hidden).squeeze()
-        return hidden
-
 class ALSTMModel(nn.Module):
     def __init__(self, d_feat=6, hidden_size=64, num_layers=2, dropout=0.0, rnn_type="GRU"):
         super().__init__()
@@ -123,9 +62,6 @@ class ALSTMModel(nn.Module):
         )  # [batch, seq_len, num_directions * hidden_size] -> [batch, hidden_size]
 
         return out
-
-
-
 
 
 class GAT_MultiHeads(nn.Module):
@@ -212,60 +148,4 @@ class GAT_MultiHeads(nn.Module):
             return score, D_attn_weights, S_attn_weights
         else:
             return score
-
-
-
-class MultiHeadAttention(nn.Module):
-    ''' Multi-Head Attention module '''
-
-    def __init__(self, n_head, d_model, d_k, d_v, top_k, dropout=0.1):
-        super().__init__()
-
-        self.n_head = n_head
-        self.d_k = d_k
-        self.d_v = d_v
-
-        self.w_qs = nn.Linear(d_model, n_head * d_k, bias=False)
-        self.w_ks = nn.Linear(d_model, n_head * d_k, bias=False)
-        self.w_vs = nn.Linear(d_model, n_head * d_v, bias=False)
-        self.fc = nn.Linear(n_head * d_v, d_model, bias=False)
-
-        self.attention = ScaledDotProductAttention(top_k, d_k ** 0.5)
-
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
-
-    def forward(self, q, k, v, mask=None):
-        # print("MultiHeadAttention:", q.shape, k.shape, v.shape)
-        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
-        sz_b, len_q, len_k, len_v = q.size(0), q.size(1), k.size(1), v.size(1)
-
-        residual = q
-
-        # Pass through the pre-attention projection: b x lq x (n*dv)
-        # Separate different heads: b x lq x n x dv
-        q = self.w_qs(q).view(sz_b, len_q, n_head, d_k)
-        k = self.w_ks(k).view(sz_b, len_k, n_head, d_k)
-        v = self.w_vs(v).view(sz_b, len_v, n_head, d_v)
-
-        # Transpose for attention dot product: b x n x lq x dv
-        q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-
-        if mask is not None:
-            mask = mask.unsqueeze(1)  # For head axis broadcasting.
-
-        q, attn, mask_k = self.attention(q, k, v)
-        # print(q.shape)
-        # Transpose to move the head dimension back: b x lq x n x dv
-        # Combine the last two dimensions to concatenate all the heads together: b x lq x (n*dv)
-        q = q.transpose(1, 2).contiguous().view(sz_b, len_q, -1)
-        # print(q.shape)
-        q = self.dropout(self.fc(q))
-        q += residual
-
-        q = self.layer_norm(q)
-
-        return q, attn, mask_k
-
-
 
