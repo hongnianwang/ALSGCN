@@ -27,7 +27,7 @@ class ALSTMModel(nn.Module):
             num_layers=self.rnn_layer,
             batch_first=True,
             dropout=self.dropout,
-            # bidirectional=True  # BiGRU
+            bidirectional=True  # BiGRU
         )
         self.gru_out = nn.Linear(self.hid_size * 2, self.hid_size)
 
@@ -50,16 +50,16 @@ class ALSTMModel(nn.Module):
 
     def forward(self, x):
         # rnn_out = self.rnn(self.net(x))
-        rnn_out, _ = self.rnn(self.net(x))  # [batch, seq_len, num_directions * hidden_size]
-        # rnn_out = self.gru_out(rnn_out)
+        rnn_out, _ = self.rnn(self.net(x))  
+        rnn_out = self.gru_out(rnn_out)
 
-        attention_score = self.att_net(rnn_out)  # [batch, seq_len, 1]
+        attention_score = self.att_net(rnn_out)  
         out_att = torch.mul(rnn_out, attention_score)
         out_att2 = torch.sum(out_att, dim=1)
 
         out = self.fc_out(
             torch.cat((rnn_out[:, -1, :], out_att2), dim=1)
-        )  # [batch, seq_len, num_directions * hidden_size] -> [batch, hidden_size]
+        )  
 
         return out
 
